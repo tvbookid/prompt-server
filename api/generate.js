@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+  // 🛡️ Izinkan akses dari Blogspot
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -6,7 +7,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    // 📥 Ambil data dari frontend Blogspot
+    // 📥 Ambil body request dari front-end
     const body = await new Promise(resolve => {
       let data = "";
       req.on("data", chunk => (data += chunk));
@@ -15,62 +16,64 @@ export default async function handler(req, res) {
 
     const { tujuan, kategori, audien, gaya, format, batasan } = body;
 
-    // 🧠 Template prompt otomatis
+    // 🧠 Buat prompt induk untuk AI
     const prompt = `
-[ROLE / PERAN AI]
-Bertindaklah sebagai ${kategori.join(", ")} dengan pengalaman 20 tahun. 
-Ambil peran yang paling relevan dari kategori di atas dan tulis dengan gaya profesional.
+Bertindaklah sebagai **Prompt Engineer profesional dengan pengalaman 20 tahun**.
+Tugasmu adalah membuat SATU prompt AI final yang siap dipakai, dengan menyebutkan role AI yang paling relevan di awal prompt.
 
-[OBJECTIVE]
-${tujuan}
+Berikut detail dari pengguna:
+🧭 Kategori: ${kategori.join(", ")}
+🎯 Tujuan: ${tujuan}
+👥 Audien: ${audien || "-"}
+✨ Gaya Jawaban: ${gaya || "-"}
+🧾 Format Output: ${format || "-"}
+⚡ Batasan/Aturan: ${batasan || "-"}
 
-[INSTRUKSI LANGKAH-LANGKAH]
-1. Tentukan dan tulis peran AI secara eksplisit di awal prompt (contoh: “Bertindaklah sebagai ...”).
-2. Kembangkan objective menjadi instruksi langkah-langkah teknis atau kreatif yang jelas.
-3. Gunakan gaya jawaban: ${gaya || "(bebas)"}.
-4. Gunakan format output: ${format || "(bebas)"}.
-5. Sesuaikan bahasa dengan target audiens: ${audien || "(umum)"}.
-6. Buat prompt akhir yang siap dipakai user untuk menghasilkan hasil terbaik.
-
-[FORMAT OUTPUT]
-Tuliskan struktur output dengan rapi, jelas, dan profesional.
-Sertakan elemen yang relevan (misalnya: outline, daftar isi, poin-poin, instruksi teknis, atau struktur lengkap sesuai kategori).
-
-[KRITERIA EVALUASI HASIL]
-- Struktur logis dan progresif.
-- Bahasa komunikatif dan mudah dipahami.
-- Setiap bagian punya nilai praktis.
-- Tidak boleh generik atau mengulang.
-- Sesuai batasan di bawah ini.
-
-[BATASAN]
-${batasan || "(tidak ada batasan tambahan)"}
+Instruksi untuk AI:
+1. Tentukan peran AI yang paling relevan berdasarkan kategori dan tujuan (misalnya: “Bertindaklah sebagai ahli marketing digital…”).
+2. Tulis peran tersebut di awal prompt final.
+3. Buat objective dan instruksi langkah-langkah dengan sangat jelas.
+4. Sertakan gaya jawaban dan format output sesuai pilihan pengguna.
+5. Gunakan batasan/aturan jika ada.
+6. Keluarkan HANYA 1 prompt final siap pakai — dalam bahasa Indonesia.
 `;
 
-    // ⚡ Kirim ke OpenAI
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini", // 🪙 pakai model termurah dan stabil
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 1000
-      })
-    });
+    // 🚀 Kirim ke OpenAI pakai model hemat
+    async function callOpenAI(modelName) {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 600
+        })
+      });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Gagal memproses.");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || "Gagal pada model " + modelName);
+      return data.choices[0].message.content;
+    }
 
+    // ✨ Pakai model utama (gpt-4o-mini), fallback ke gpt-3.5-turbo kalau error
+    let hasil;
+    try {
+      hasil = await callOpenAI("gpt-4o-mini");
+    } catch (e) {
+      console.warn("⚠️ gpt-4o-mini gagal, fallback ke gpt-3.5-turbo:", e.message);
+      hasil = await callOpenAI("gpt-3.5-turbo");
+    }
+
+    // 📤 Kirim hasil ke front-end
     res.status(200).json({
       ok: true,
-      result: data.choices[0].message.content
+      result: hasil
     });
 
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 }
-
